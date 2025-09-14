@@ -227,34 +227,13 @@ Rel(ферм_агент, ферм_бд, "Буферизация данных", "
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Task2 — MVP платформы мониторинга свиноводческих ферм
+# Task2 — MVP платформы мониторинга ферм
 
 **Содержание:**
 
 1. Ограниченные контексты (bounded contexts) и микросервисы
 2. Архитектурные решения (ADR) с компромиссами и рисками
-3. Два варианта C2 (контейнерных) диаграмм (Mermaid + текст)
+3. Два варианта C2 (контейнерных) диаграмм
 4. Интеграции между сервисами и обоснование технологий
 5. Рекомендации по следующему шагу и артефакты для репозитория
 
@@ -492,44 +471,45 @@ flowchart TB
 
 # 4. Интеграции между сервисами и обоснование
 
-Ниже — список интеграций, формат сообщений и аргументы в пользу выбора технологий.
+Ниже приведён список интеграций, формат сообщений и аргументы в пользу выбора технологий.
 
 ## 4.1 Камеры -> Edge Ingest
 
-* **Протокол:** RTSP/ONVIF
-* **Причина:** стандарты видеонаблюдения; большинство IP-камер поддерживает RTSP.
-* **Требования:** низкая задержка, поддержка IR и ночь. Использовать hardware decoding, FFMPEG/GStreamer.
-* **Формат событий:** JSON-манифесты + ссылки на ключевые фрагменты видео (S3 object id) + метаданные (timestamp, camera\_id, bbox, confidence).
+* **Протокол:** RTSP/ONVIF  
+* **Причина:** это стандарт видеонаблюдения; большинство IP-камер поддерживает RTSP.  
+* **Требования:** низкая задержка, поддержка инфракрасного режима для ночной съёмки. Используется аппаратное декодирование (hardware decoding), FFMPEG/GStreamer.  
+* **Формат событий:** JSON-манифесты с ссылками на ключевые фрагменты видео (ID объекта в S3) и метаданными (timestamp, camera_id, bbox, confidence).  
 
 ## 4.2 Устройства (сенсоры/кормушки/поилки) <-> Device Gateway
 
-* **Протокол:** MQTT (topic farm/{farmId}/{deviceType}/{deviceId}), QoS=1 для критичных команд.
-* **Причина:** минимальная сложность, good for unstable networks.
-* **Команды:** JSON, schema + version (при изменении API — versioned topics).
+* **Протокол:** MQTT (topic farm/{farmId}/{deviceType}/{deviceId}), QoS=1 для критичных команд.  
+* **Причина:** простота реализации, стабильная работа при нестабильных сетях.  
+* **Команды:** JSON, с определением схемы и версии (при изменении API используются versioned topics).  
 
-## 4.3 Edge -> Central (Events/Telemetry)
+## 4.3 Edge -> Central (события/телеметрия)
 
-* **Протокол:** AMQP via RabbitMQ или Kafka REST; events are small JSON messages; video archived separately in object storage.
-* **Reasoning:** mensajes reliable queuing, retry, persistence.
+* **Протокол:** AMQP через RabbitMQ или REST Proxy для Kafka; события — небольшие JSON-сообщения; видео архивируется отдельно в объектное хранилище.  
+* **Обоснование:** гарантированная доставка сообщений, повторные попытки, сохранность данных.  
 
 ## 4.4 Central API -> UI/Mobile
 
-* **Протокол:** HTTPS + OpenAPI (REST). Для real-time UI use WebSockets or Server-Sent Events (SSE) to push alerts.
+* **Протокол:** HTTPS + OpenAPI (REST). Для real-time интерфейсов используется WebSockets или Server-Sent Events (SSE) для push-уведомлений.  
 
-## 4.5 Alerts -> Notification Channels
+## 4.5 Alerts -> Каналы уведомлений
 
-* **Интеграции:** SMS gateway (SMPP/HTTP), Push (FCM/APNs), local GSM modem for farm-local SMS, VoIP gateway for calls.
-* **Логика:** multiple channels, escalation, deduplication.
+* **Интеграции:** SMS-шлюз (SMPP/HTTP), Push-уведомления (FCM/APNs), локальный GSM-модем для SMS на ферме, VoIP-шлюз для звонков.  
+* **Логика:** мультиканальная доставка, эскалация, дедупликация уведомлений.  
 
-## 4.6 Storage
+## 4.6 Хранение данных
 
-* **Видео store:** S3-compatible (MinIO on-prem or AWS S3). Thumbnails and metadata in DB; raw video in object storage with lifecycle policies.
-* **Telemetry:** TimescaleDB/Postgres for time-series + OLAP in ClickHouse if нужна аналитика.
+* **Видео:** S3-совместимое хранилище (MinIO on-prem или AWS S3). Миниатюры и метаданные в базе данных, исходное видео — в объектном хранилище с политиками жизненного цикла.  
+* **Телеметрия:** TimescaleDB/Postgres для временных рядов, ClickHouse для аналитики при необходимости.  
 
-## 4.7 Metrics & Observability
+## 4.7 Метрики и мониторинг
 
-* **Collect:** Prometheus exporters at services; Grafana dashboards. Central metrics aggregator (Prometheus TSDB or remote write to Timescale).
-* **Tracing:** OpenTelemetry, Jaeger collector.
+* **Сбор:** Prometheus-экспортеры на сервисах, дашборды Grafana. Центральный агрегатор метрик (Prometheus TSDB или remote write в TimescaleDB).  
+* **Трассировка:** OpenTelemetry, Jaeger collector для распределенного трейсинга.
+
 
 ---
 
