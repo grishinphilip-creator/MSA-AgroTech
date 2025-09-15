@@ -1,1 +1,154 @@
+# Task3 — MVP платформы мониторинга ферм
 
+# 1 - Диаграмма С3 для Система животноводства (ферма) с внутренней kafka 
+
+@startuml Архитектура_АгроТех_Системы_С3_1_внутренняя_kafka
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+System_Boundary(ферма, "Система животноводства (ферма)") {
+    
+    Component(ферм_агент, "Локальный агент фермы", "Go", "Буферизация данных, синхронизация с Kafka, приём команд")
+    ComponentDb(ферм_бд, "Локальная БД", "Postgres", "Хранение событий и метрик")
+    Component(видеоаналитика, "Модуль видеоаналитики", "Python+AI", "Детекция животных, поведение, здоровье")
+    Component(ферм_датчики, "Датчики и камеры", "Разное оборудование", "Телеметрия, видео")
+    Component(кормление, "Система кормления и поения", "Embedded+C++", "Управление кормушками и поилками")
+}
+
+System_Boundary(платформа, "АгроТех Х - Цифровая платформа") {
+    Container(kafka, "Внутренний брокер сообщений", "Apache Kafka", "Часть платформы, шина данных для всех подсистем")
+}
+
+' --- Взаимодействие внутри фермы ---
+Rel(ферм_датчики, видеоаналитика, "Передает поток видео и данные")
+Rel(видеоаналитика, ферм_агент, "Результаты анализа")
+Rel(ферм_агент, ферм_бд, "Запись событий и метрик", "SQL")
+Rel(ферм_агент, кормление, "Управление кормушками и поилками")
+
+' --- Связи фермы с платформой ---
+Rel(ферм_агент, kafka, "Публикация телеметрии и событий", "Kafka Protocol")
+Rel(kafka, ферм_агент, "Доставка команд управления", "Kafka Protocol")
+
+@enduml
+
+# 2 - Диаграмма С3 для Система животноводства (ферма) с внешней kafka 
+
+@startuml Архитектура_АгроТех_Системы_С3_2_внешняя_kafka
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container_Boundary(фермы, "Система животноводства (фермы)") {
+    Component(ферм_агент, "Локальный агент фермы", "Go", "Управление и буферизация данных, обмен с Kafka")
+    Component(ферм_бд, "Локальная БД", "Postgres", "Хранение событий, метрик, состояние устройств")
+    Component(видеоаналитика, "Видеоаналитика", "Python/OpenCV + ML", "Обработка потоков камер, детекция событий")
+    Component(кормление, "Система кормления и поения", "Embedded/C++", "Управление кормушками и поилками")
+    Component(ферм_датчики, "Датчики и камеры", "IoT Devices", "Измерение здоровья, поведения, подсчёт поголовья")
+}
+
+System_Boundary(внешние_интеграции, "Интеграционный слой") {
+    Container(внешняя_kafka, "Внешний брокер сообщений", "Apache Kafka", "Обмен данными с платформой")
+}
+
+' --- Взаимодействия ---
+Rel(ферм_датчики, видеоаналитика, "Передаёт видео/метрики")
+Rel(видеоаналитика, ферм_агент, "События и результаты анализа")
+Rel(ферм_агент, ферм_бд, "Буферизация данных", "SQL")
+Rel(ферм_агент, кормление, "Команды управления")
+Rel(ферм_агент, внешняя_kafka, "Отправляет телеметрию и события, получает команды", "Kafka Protocol")
+
+@enduml
+
+# 3 - Диаграммы С4 основных компонент варианта с внешней kafka
+
+@startuml Архитектура_АгроТех_Системы_C4_2_локальный_агент
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Code.puml
+
+Container_Boundary(agent, "Локальный агент фермы (Go)") {
+    Component(ingest, "Ingest Module", "Go", "Получение данных от датчиков и видеоаналитики")
+    Component(buffer, "Buffer Manager", "Go", "Очередь сообщений, офлайн-буферизация")
+    Component(sync, "Sync Service", "Go", "Синхронизация с внешней Kafka")
+    Component(commands, "Command Handler", "Go", "Обработка управляющих команд")
+    Component(db_adapter, "DB Adapter", "Go", "Работа с локальной Postgres")
+    Component(api, "Local API", "gRPC/REST", "Локальный API для UI/диагностики")
+    Component(auth, "Auth Cache", "Go + JWT", "Локальное кэширование токенов OIDC")
+}
+
+System_Ext(kafka, "Внешний брокер сообщений (Kafka)", "Pub/Sub")
+System_Ext(local_db, "Postgres локальная БД", "Хранение метрик и событий")
+
+Rel(ingest, buffer, "Сохраняет события")
+Rel(buffer, sync, "Передаёт пакеты данных")
+Rel(sync, kafka, "Публикация/подписка")
+Rel(sync, commands, "Передаёт команды управления")
+Rel(commands, db_adapter, "Сохраняет состояния")
+Rel(ingest, db_adapter, "Записывает метрики")
+Rel(api, db_adapter, "Читает данные")
+Rel(api, commands, "Отправка команд")
+Rel(auth, api, "Авторизация запросов")
+Rel(db_adapter, local_db, "SQL-запросы")
+
+@enduml
+
+
+@startuml Архитектура_АгроТех_Системы_C4_2_сенсоры
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Code.puml
+
+Container_Boundary(sensors, "Датчики и камеры") {
+    Component(sensor_units, "Sensor Units", "C/Arduino", "Измерение температуры, влажности, движения, веса")
+    Component(camera_units, "IP Cameras", "RTSP/ONVIF", "Видеопотоки и изображения")
+    Component(sensor_fw, "Sensor Firmware", "C++", "Обработка сигналов, отправка телеметрии")
+    Component(edge_adapter, "Edge Adapter", "Python/Node.js", "MQTT/HTTP-шлюз")
+}
+
+System_Ext(farm_agent, "Локальный агент фермы", "Сбор и обработка данных")
+
+Rel(sensor_units, sensor_fw, "Сырые данные -> обработка")
+Rel(sensor_fw, edge_adapter, "Публикация событий", "MQTT/HTTP")
+Rel(camera_units, edge_adapter, "Стриминг видео", "RTSP")
+Rel(edge_adapter, farm_agent, "Передача событий и потоков")
+
+@enduml
+
+
+@startuml Архитектура_АгроТех_Системы_C4_2_видеоаналитика
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Code.puml
+
+Container_Boundary(video, "Модуль видеоаналитики") {
+    Component(stream_ingest, "Stream Ingest", "FFmpeg/GStreamer", "Получение и декодирование потоков RTSP")
+    Component(preproc, "Preprocessing", "OpenCV", "Фильтрация, нормализация кадров")
+    Component(ai_models, "AI Models", "TensorFlow/PyTorch", "Детекция животных, поведение, здоровье")
+    Component(event_builder, "Event Builder", "Python", "Формирование событий и метрик")
+    Component(exporter, "Exporter", "gRPC/REST", "Отправка результатов в агент")
+}
+
+System_Ext(cameras, "Камеры", "RTSP")
+System_Ext(farm_agent, "Локальный агент фермы", "Принимает события")
+
+Rel(cameras, stream_ingest, "RTSP-потоки")
+Rel(stream_ingest, preproc, "Кадры")
+Rel(preproc, ai_models, "Предобработанные изображения")
+Rel(ai_models, event_builder, "Распознанные объекты и метрики")
+Rel(event_builder, exporter, "События")
+Rel(exporter, farm_agent, "Отправка JSON событий")
+
+@enduml
+
+
+@startuml Архитектура_АгроТех_Системы_C4_2_кормушка
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Code.puml
+
+Container_Boundary(feeding, "Система кормления и поения") {
+    Component(feed_controllers, "Контроллеры кормушек", "C/Arduino", "Дозаторы, датчики уровня корма")
+    Component(water_controllers, "Контроллеры поилок", "C/Arduino", "Клапаны, датчики потока воды")
+    Component(control_fw, "Control Firmware", "C++", "Логика работы оборудования")
+    Component(comm_module, "Communication Module", "MQTT/HTTP", "Связь с агентом фермы")
+    Component(local_logic, "Local Safety Logic", "C++", "Резервное управление при потере связи")
+}
+
+System_Ext(farm_agent, "Локальный агент фермы", "Отправляет команды и получает телеметрию")
+
+Rel(feed_controllers, control_fw, "Данные о кормах")
+Rel(water_controllers, control_fw, "Данные о воде")
+Rel(control_fw, comm_module, "Телеметрия и управление")
+Rel(comm_module, farm_agent, "MQTT/HTTP события и команды")
+Rel(control_fw, local_logic, "Резервное управление")
+
+@enduml
